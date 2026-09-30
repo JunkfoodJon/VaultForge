@@ -1119,7 +1119,17 @@ pub fn processes_running_under(dir: &Path) -> Vec<RunningProcess> {
                 let pid = entry.th32_process_id;
                 if pid != 0 && pid != current {
                     if let Some(path) = process_image_path(pid) {
-                        if normalized_prefix(&path).starts_with(&root_key) {
+                        // Windows reports an image path the way the process was
+                        // started, which can be the 8.3 short form
+                        // (C:\Users\RUNNER~1\...), while `root` is canonical
+                        // (long). Expand short names before giving up — only when
+                        // there is a `~`, so the common case stays one compare.
+                        let inside = normalized_prefix(&path).starts_with(&root_key)
+                            || (path.to_string_lossy().contains('~')
+                                && path
+                                    .canonicalize()
+                                    .is_ok_and(|long| normalized_prefix(&long).starts_with(&root_key)));
+                        if inside {
                             let name = path
                                 .file_name()
                                 .map(|name| name.to_string_lossy().into_owned())
@@ -1265,6 +1275,8 @@ mod tests {
     #[cfg(target_os = "windows")]
     use super::terminate_process;
     use std::path::{Path, PathBuf};
+    #[cfg(target_os = "windows")]
+    use std::os::windows::ffi::OsStrExt;
 
     /// End-to-end over the real Win32 snapshot: a process launched from a
     /// directory is found by path, and can then be cleared. This is the
@@ -1310,6 +1322,53 @@ mod tests {
         assert!(processes_running_under(&dir).is_empty(), "probe should be gone");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A process started through an 8.3 short path (C:\Users\RUNNER~1\... on
+    /// CI runners, or any profile Windows abbreviates) must still be found
+    /// under the canonical, long-form folder.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn finds_a_process_started_through_a_short_path() {
+        unsafe extern "system" {
+            fn GetShortPathNameW(long: *const u16, short: *mut u16, len: u32) -> u32;
+        }
+        let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
+        let source = PathBuf::from(system_root).join("System32").join("PING.EXE");
+        let dir = unique_temp_dir("proc scan with a long name");
+        std::fs::create_dir_all(&dir).expect("create probe dir");
+        let probe = dir.join("vaultforge probe.exe");
+        std::fs::copy(&source, &probe).expect("copy probe exe");
+
+        let wide: Vec<u16> = probe.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        let mut buffer = vec![0_u16; 1024];
+        let len = unsafe { GetShortPathNameW(wide.as_ptr(), buffer.as_mut_ptr(), buffer.len() as u32) } as usize;
+        let short = PathBuf::from(String::from_utf16_lossy(&buffer[..len]));
+        if len == 0 || short == probe {
+            // 8.3 names are disabled on this volume; nothing to test here.
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let mut child = std::process::Command::new(&short)
+            .args(["-n", "30", "127.0.0.1"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn probe through its short path");
+        let mut found = Vec::new();
+        for _ in 0..50 {
+            found = processes_running_under(&dir);
+            if !found.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(40));
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(found.len(), 1, "a short-path launch ({}) must match the long folder", short.display());
     }
 
     /// The trailing separator is load-bearing: without it a workspace at
