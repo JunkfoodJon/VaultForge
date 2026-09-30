@@ -1,0 +1,61 @@
+name: Bug report
+description: Something in VaultForge doesn't work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. **Security problems:** please don't file them here;
+        use the private report on the Security tab instead (see SECURITY.md).
+
+        Build logs and paths can contain your user name and project names. Check anything
+        you paste first.
+  - type: input
+    id: version
+    attributes:
+      label: VaultForge version
+      description: Shown under the title, e.g. "BUILD FORGE v0.1.0".
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installed or portable?
+      options:
+        - Installer (setup.exe)
+        - Portable zip
+        - Built from source
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 24H2"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Select a Rust project
+        2. Choose BUILD with the Release profile
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Crash log or terminal output (optional)
+      description: |
+        If VaultForge crashed, attach `%APPDATA%\VaultTools\logs\vaultforge-crash.log`.
+        For a build problem, the relevant lines from the terminal or from OPEN LOG.
+      render: text

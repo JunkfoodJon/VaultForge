@@ -1,0 +1,19 @@
+# Build output
+/target/
+*.pdb
+
+# Installer and zip output (installer/package.ps1)
+/installer/out/
+
+# Private working notes and tool state (not part of the public project)
+/docs/
+/.github/instructions/
+/.github/copilot-instructions.md
+/.github/gui-backups/
+.claude/
+.vs/
+.vscode/
+.idea/
+
+# Crash dumps
+*.dmp
