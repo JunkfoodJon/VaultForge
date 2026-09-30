@@ -1948,15 +1948,20 @@ mod tests {
     /// this file is the only complete record of a noisy build.
     #[test]
     fn execution_writes_a_complete_log_to_disk() {
+        // An empty folder, not this repository: a Rust plan first primes the
+        // progress bar with `cargo metadata`, and inside the repo that queues
+        // behind the locks of the very `cargo test` running this test (it
+        // timed out after 30s on a CI runner). Outside a workspace it fails
+        // at once, which is all the priming step needs to do here.
+        let cwd = std::env::temp_dir().join(format!("vaultforge-log-test-{}", std::process::id()));
+        std::fs::create_dir_all(&cwd).expect("create test folder");
         let mut plan = rust_plan(ActionKind::Check);
         plan.args = vec!["--version".to_string()];
-        plan.cwd = std::env::current_dir().expect("cwd");
+        plan.cwd = cwd.clone();
 
         let running = spawn_execution(plan, None);
         let log_path = running.log_path().map(Path::to_path_buf).expect("log path");
 
-        // Generous budget: `cargo metadata` + `cargo --version` take ~1s alone
-        // but share the machine with the rest of the parallel test run.
         let mut report = None;
         for _ in 0..1_500 {
             if let Some(finished) = running.try_finish() {
@@ -1965,7 +1970,11 @@ mod tests {
             }
             thread::sleep(std::time::Duration::from_millis(20));
         }
-        let report = report.expect("cargo --version should finish promptly");
+        let _ = std::fs::remove_dir_all(&cwd);
+        let report = report.unwrap_or_else(|| {
+            let seen: Vec<String> = running.terminal_lines_since(0).lines.into_iter().map(|line| line.text).collect();
+            panic!("cargo --version did not finish within 30s; output so far: {seen:?}")
+        });
 
         assert!(report.success, "cargo --version should succeed");
         assert_eq!(report.log_path.as_deref(), Some(log_path.as_path()));
